@@ -1,8 +1,12 @@
 {
   "name": "zoho-odoo-pay",
   "version": "1.0.0",
+  "type": "commonjs",
   "dependencies": {
-    "@vercel/kv": "^1.1.2",
-    "axios": "^1.7.2"
+    "@vercel/kv": "^1.0.2",
+    "axios": "^1.7.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
