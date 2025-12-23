@@ -1,0 +1,8 @@
+{
+  "name": "zoho-odoo-pay",
+  "version": "1.0.0",
+  "dependencies": {
+    "@vercel/kv": "^1.1.2",
+    "axios": "^1.7.2"
+  }
+}
