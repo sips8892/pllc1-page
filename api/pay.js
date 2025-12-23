@@ -103,6 +103,8 @@ function getLoadingPage(orderId) {
 async function searchOdooInvoice(orderId) {
   const jsonrpcUrl = `${ODOO_CONFIG.url}/jsonrpc`;
   
+  console.log(`🔍 Searching Odoo for invoice: ${orderId}`);
+  
   try {
     // Step 1: Authenticate
     const authResponse = await axios.post(jsonrpcUrl, {
@@ -116,14 +118,16 @@ async function searchOdooInvoice(orderId) {
       id: 1
     });
     
+    console.log('✅ Auth success, UID:', authResponse.data.result);
+    
     if (authResponse.data.error) {
-      console.error('Auth error:', authResponse.data.error);
+      console.error('❌ Auth error:', authResponse.data.error);
       return null;
     }
     
     const uid = authResponse.data.result;
     
-    // Step 2: Search invoices where name = orderId
+    // Step 2: Search invoices
     const searchResponse = await axios.post(jsonrpcUrl, {
       jsonrpc: '2.0',
       method: 'call',
@@ -143,83 +147,66 @@ async function searchOdooInvoice(orderId) {
       id: 2
     });
     
+    console.log('📋 Search result:', searchResponse.data.result?.length || 0, 'invoices');
+    
     if (searchResponse.data.error) {
-      console.error('Search error:', searchResponse.data.error);
+      console.error('❌ Search error:', searchResponse.data.error);
       return null;
     }
     
     return searchResponse.data.result;
   } catch (error) {
-    console.error('Odoo API error:', error.message);
+    console.error('💥 Odoo API error:', error.message);
+    console.error('Full error:', error.response?.data);
     return null;
   }
 }
 
-// Main handler - handles all /api routes
+// FIXED: Correct Vercel routing for api/pay.js
 module.exports = async (req, res) => {
-  const method = req.method;
+  console.log('📡 /api/pay hit:', req.method, req.url);
+  
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname;
+  const order_id = url.searchParams.get('order_id');
   
-  // GET /api/pay?order_id=xxx
-  if (method === 'GET' && pathname === '/') {
-    const order_id = url.searchParams.get('order_id');
-    
-    if (!order_id) {
-      return res.status(400).send('Missing order_id parameter');
-    }
-    
-    // Check cache first
-    const cachedUrl = await kv.get(`payment_${order_id}`);
-    if (cachedUrl) {
-      return res.writeHead(302, { Location: cachedUrl }).end();
-    }
-    
-    // Send loading page
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(getLoadingPage(order_id));
-    
-    // Background: Wait 10s + search Odoo
-    setImmediate(async () => {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        
-        const invoice = await searchOdooInvoice(order_id);
-        if (!invoice || invoice.length === 0) {
-          console.log(`No invoice found for ${order_id}`);
-          return;
-        }
-        
-        const invoiceData = invoice[0];
-        const paymentUrl = `${ODOO_CONFIG.url}/my/invoices/${invoiceData.id}?access_token=${invoiceData.access_token}`;
-        
-        await kv.set(`payment_${order_id}`, paymentUrl, { ex: 1800 });
-        console.log(`Payment URL cached for ${order_id}`);
-      } catch (error) {
-        console.error('Background search failed:', error);
-      }
-    });
-    
-    return;
+  console.log('🔑 Order ID:', order_id);
+  
+  if (!order_id) {
+    console.log('❌ Missing order_id');
+    return res.status(400).send('Missing order_id parameter');
   }
   
-  // POST /api/webhook (Zoho)
-  if (method === 'POST' && pathname === '/') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const formData = JSON.parse(body);
-        console.log('Zoho webhook:', formData);
-      } catch (e) {
-        console.log('Webhook body:', body);
-      }
-      res.status(200).send('OK');
-    });
-    return;
+  // Check cache first (instant redirect)
+  const cachedUrl = await kv.get(`payment_${order_id}`);
+  if (cachedUrl) {
+    console.log('🚀 Cache hit, redirecting:', cachedUrl);
+    return res.writeHead(302, { Location: cachedUrl }).end();
   }
   
-  // 404
-  res.status(404).send('Not found');
+  // Send loading page immediately
+  console.log('🎨 Sending loading page');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(getLoadingPage(order_id));
+  
+  // Background: Wait 10s + search Odoo
+  setImmediate(async () => {
+    console.log('⏳ Starting 10s background search for:', order_id);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      
+      const invoice = await searchOdooInvoice(order_id);
+      if (!invoice || invoice.length === 0) {
+        console.log(`❌ No invoice found for ${order_id}`);
+        return;
+      }
+      
+      const invoiceData = invoice[0];
+      const paymentUrl = `${ODOO_CONFIG.url}/my/invoices/${invoiceData.id}?access_token=${invoiceData.access_token}`;
+      
+      await kv.set(`payment_${order_id}`, paymentUrl, { ex: 1800 });
+      console.log(`✅ Payment URL cached for ${order_id}:`, paymentUrl);
+    } catch (error) {
+      console.error('💥 Background search failed:', error);
+    }
+  });
 };
-
