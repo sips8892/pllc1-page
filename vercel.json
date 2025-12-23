@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/pay.js": {
+      "runtime": "nodejs18.x"
+    }
+  }
+}
