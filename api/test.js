@@ -1,4 +1,5 @@
 const axios = require('axios');
+import xmlrpc from 'xmlrpc';
 
 const ODOO_CONFIG = {
   url: 'https://activepieces-odoo.t4stfh.easypanel.host',
