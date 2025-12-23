@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 const ODOO_CONFIG = {
-  url: 'https://activepieces-odoo.t4stfh.easypanel.host/',
+  url: 'https://activepieces-odoo.t4stfh.easypanel.host',
   db: 'Dbone',
   username: process.env.ODUSERNAME,
   password: process.env.ODPASSWORD
