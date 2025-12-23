@@ -1,5 +1,15 @@
-const kv = require('@vercel/kv');
 const axios = require('axios');
+// Replace Vercel KV with simple in-memory cache
+const cache = new Map();
+const kv = {
+  get: async (key) => cache.get(key),
+  set: async (key, value, options) => {
+    cache.set(key, value);
+    if (options?.ex) {
+      setTimeout(() => cache.delete(key), options.ex * 1000);
+    }
+  }
+};
 
 // Odoo Config - UPDATE THESE VALUES WITH YOUR ODOO DETAILS
 const ODOO_CONFIG = {
