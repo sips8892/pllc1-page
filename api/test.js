@@ -1,7 +1,5 @@
-// api/test.js - SINGLE FILE, NO vercel.json needed
-// Access directly at /api/test - serves BOTH UI and API
-
-const { createClient } = require('xmlrpc');
+// api/test.js - FIXED: No dynamic require, proper error handling
+const xmlrpc = require('xmlrpc');
 
 const ODOO_CONFIG = {
   url: 'https://activepieces-odoo.t4stfh.easypanel.host',
@@ -11,7 +9,7 @@ const ODOO_CONFIG = {
 };
 
 module.exports = async (req, res) => {
-  // CORS headers
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -21,178 +19,13 @@ module.exports = async (req, res) => {
     return;
   }
 
-  // Serve UI for browser requests
-  if (req.method === 'GET' && !req.headers['user-agent']?.includes('curl')) {
-    return res.status(200).send(`
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Odoo Connection Test</title>
-  <meta name="viewport" content="width=device-device-width, initial-scale=1">
-  <style>
-    * { box-sizing: border-box; }
-    body { 
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
-      margin: 0; padding: 2rem; 
-      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-      min-height: 100vh;
-    }
-    .container { 
-      max-width: 800px; 
-      margin: 0 auto; 
-      background: white; 
-      border-radius: 16px; 
-      box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-      overflow: hidden;
-    }
-    .header { 
-      background: #6366f1; 
-      color: white; 
-      padding: 2rem; 
-      text-align: center; 
-    }
-    .status { 
-      padding: 2rem; 
-      margin: 0 2rem 2rem; 
-      border-radius: 12px; 
-      font-size: 1.2rem; 
-      font-weight: 600;
-    }
-    .connected { background: #dcfce7; border: 3px solid #22c55e; color: #166534; }
-    .disconnected { background: #fee2e2; border: 3px solid #ef4444; color: #991b1b; }
-    .checking { background: #fef3c7; border: 3px solid #eab308; color: #854d0e; }
-    .env-missing { background: #dbeafe; border: 3px solid #3b82f6; color: #1e40af; }
-    .diagnostics { 
-      background: #f8fafc; 
-      padding: 2rem; 
-      margin: 0 2rem 2rem; 
-      border-radius: 12px; 
-      border-top: 4px solid #e2e8f0;
-    }
-    pre { 
-      background: #1e293b; 
-      color: #e2e8f0; 
-      padding: 1.5rem; 
-      border-radius: 8px; 
-      overflow: auto; 
-      font-size: 0.9rem; 
-      line-height: 1.5;
-      margin: 0;
-    }
-    .controls { 
-      padding: 0 2rem 2rem; 
-      text-align: center; 
-      background: #f1f5f9;
-    }
-    button { 
-      padding: 1rem 2rem; 
-      background: #3b82f6; 
-      color: white; 
-      border: none; 
-      border-radius: 8px; 
-      cursor: pointer; 
-      font-size: 1rem; 
-      font-weight: 600;
-      transition: all 0.2s;
-    }
-    button:hover:not(:disabled) { background: #2563eb; transform: translateY(-1px); }
-    button:disabled { background: #9ca3af; cursor: not-allowed; }
-    .footer { 
-      text-align: center; 
-      padding: 1rem 2rem; 
-      background: #f8fafc; 
-      color: #64748b; 
-      font-size: 0.9rem; 
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🧪 Odoo Connection Test</h1>
-      <div style="opacity: 0.9; font-size: 1.1rem;">https://activepieces-odoo.t4stfh.easypanel.host</div>
-    </div>
-    
-    <div id="status" class="status checking">
-      <div id="status-text">🔄 Checking connection...</div>
-      <div id="error-text" style="display:none; margin-top: 0.5rem;"></div>
-    </div>
-    
-    <div class="diagnostics">
-      <strong>🔍 Diagnostics:</strong>
-      <pre id="diagnostics">Loading...</pre>
-    </div>
-    
-    <div class="controls">
-      <button id="refresh" onclick="checkStatus()">🔄 Refresh Now</button>
-      <div style="margin-top: 1rem; opacity: 0.8;">Auto-refreshes every 5 seconds</div>
-    </div>
-    
-    <div class="footer">
-      API Endpoint: <code>/api/test</code> | Direct JSON: <code>curl YOUR_URL/api/test</code>
-    </div>
-  </div>
-
-  <script>
-    let isRefreshing = false;
-    
-    async function checkStatus() {
-      if (isRefreshing) return;
-      isRefreshing = true;
-      
-      const statusEl = document.getElementById('status');
-      const statusTextEl = document.getElementById('status-text');
-      const errorTextEl = document.getElementById('error-text');
-      const diagnosticsEl = document.getElementById('diagnostics');
-      const refreshBtn = document.getElementById('refresh');
-      
-      statusEl.className = 'status checking';
-      statusTextEl.textContent = '🔄 Testing connection...';
-      errorTextEl.style.display = 'none';
-      refreshBtn.disabled = true;
-      refreshBtn.textContent = '🔄 Loading...';
-      
-      try {
-        const res = await fetch('/api/test');
-        const data = await res.json();
-        
-        if (data.success) {
-          statusEl.className = 'status connected';
-          statusTextEl.innerHTML = 
-            \`✅ <strong>CONNECTED</strong><br>
-             <span style="opacity:0.8">UID: \${data.diagnostics.uid}</span><br>
-             <span style="opacity:0.8">Version: \${data.diagnostics.version}</span>\`;
-        } else {
-          const isEnvMissing = data.diagnostics?.env_vars_set === false;
-          statusEl.className = isEnvMissing ? 'status env-missing' : 'status disconnected';
-          statusTextEl.textContent = isEnvMissing ? '⚠️ ENV VARS MISSING' : '❌ DISCONNECTED';
-          errorTextEl.textContent = data.error || 'Unknown error';
-          errorTextEl.style.display = 'block';
-        }
-        
-        diagnosticsEl.textContent = JSON.stringify(data.diagnostics, null, 2);
-      } catch (err) {
-        statusEl.className = 'status disconnected';
-        statusTextEl.innerHTML = '❌ NETWORK ERROR';
-        errorTextEl.textContent = 'Cannot reach API endpoint';
-        errorTextEl.style.display = 'block';
-        diagnosticsEl.textContent = \`Network Error: \${err.message}\`;
-      } finally {
-        isRefreshing = false;
-        refreshBtn.disabled = false;
-        refreshBtn.textContent = '🔄 Refresh Now';
-      }
-    }
-    
-    checkStatus();
-    setInterval(checkStatus, 5000);
-  </script>
-</body>
-</html>
-    `);
+  // ✅ UI for browsers (detect by user-agent)
+  const userAgent = req.headers['user-agent'] || '';
+  if (req.method === 'GET' && !userAgent.includes('curl') && !userAgent.includes('Postman')) {
+    return res.status(200).send(getHTML());
   }
 
-  // API endpoint - returns JSON
+  // ✅ API JSON response
   try {
     const result = await testOdooConnection();
     res.status(200).json({ 
@@ -206,31 +39,88 @@ module.exports = async (req, res) => {
       success: false, 
       status: 'disconnected',
       error: error.message,
-      diagnostics: {
-        url: `${ODOO_CONFIG.url}/xmlrpc/2/common`,
-        db: ODOO_CONFIG.db,
-        username: ODOO_CONFIG.username ? 'configured' : 'missing',
-        password: ODOO_CONFIG.password ? 'configured' : 'missing',
-        env_vars_set: !!(process.env.ODUSERNAME && process.env.ODPASSWORD),
-        timestamp: new Date().toISOString()
-      }
+      diagnostics: getDiagnostics(error)
     });
   }
 };
 
-async function testOdooConnection() {
-  return new Promise((resolve, reject) => {
-    const client = createClient({ 
-      url: `${ODOO_CONFIG.url}/xmlrpc/2/common`,
-      timeout: 15000,
-      rejectUnauthorized: false,
-      headers: { 'User-Agent': 'Vercel-Odoo-Test/1.0' }
-    });
-
-    if (!ODOO_CONFIG.username || !ODOO_CONFIG.password) {
-      client.drain();
-      return reject(new Error('Missing ODOO env vars: ODUSERNAME or ODPASSWORD'));
+function getHTML() {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <title>Odoo Connection Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: -apple-system,BlinkMacSystemFont,sans-serif; margin:0; padding:2rem; background:#f8f9fa; }
+    .container { max-width:700px; margin:0 auto; }
+    h1 { color:#333; }
+    .status { padding:1.5rem; border-radius:12px; margin-bottom:1.5rem; font-size:1.1rem; }
+    .connected { background:#d4edda; border:3px solid #28a745; color:#155724; }
+    .disconnected { background:#f8d7da; border:3px solid #dc3545; color:#721c24; }
+    .checking { background:#fff3cd; border:3px solid #ffc107; color:#856404; }
+    .env-missing { background:#cce5ff; border:3px solid #0066cc; color:#004085; }
+    pre { background:#fff; padding:1rem; border-radius:6px; overflow:auto; font-size:0.85rem; }
+    button { padding:0.75rem 1.5rem; background:#0070f3; color:white; border:none; border-radius:6px; cursor:pointer; }
+    button:disabled { background:#6c757d; cursor:not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧪 Odoo Connection Test</h1>
+    <div id="status" class="status checking">
+      <div id="status-text">🔄 Checking...</div>
+      <div id="error-text" style="display:none;"></div>
+    </div>
+    <details>
+      <summary>🔍 Diagnostics</summary>
+      <pre id="diagnostics">Loading...</pre>
+    </details>
+    <button id="refresh" onclick="checkStatus()">🔄 Refresh</button>
+    <div style="opacity:0.7;font-size:0.9rem;margin-top:1rem;">Auto-refreshes every 5s</div>
+  </div>
+  <script>
+    async function checkStatus(){
+      document.getElementById('refresh').disabled=true;
+      document.getElementById('status').className='status checking';
+      document.getElementById('status-text').textContent='🔄 Testing...';
+      try{
+        const res=await fetch('/api/test');
+        const data=await res.json();
+        const statusEl=document.getElementById('status');
+        if(data.success){
+          statusEl.className='status connected';
+          document.getElementById('status-text').innerHTML=\`✅ CONNECTED<br>UID: \${data.diagnostics.uid}<br>Version: \${data.diagnostics.version}\`;
+        }else{
+          statusEl.className=data.diagnostics?.env_vars_set!==false?'status disconnected':'status env-missing';
+          document.getElementById('status-text').textContent='❌ '+data.error;
+        }
+        document.getElementById('diagnostics').textContent=JSON.stringify(data.diagnostics,null,2);
+      }catch(e){
+        document.getElementById('status').className='status disconnected';
+        document.getElementById('status-text').textContent='❌ NETWORK ERROR';
+        document.getElementById('diagnostics').textContent='Network error: '+e.message;
+      }
+      document.getElementById('refresh').disabled=false;
+      document.getElementById('refresh').textContent='🔄 Refresh';
     }
+    checkStatus(); setInterval(checkStatus,5000);
+  </script>
+</body></html>`;
+}
+
+async function testOdooConnection() {
+  // ✅ FIX 1: TOP-LEVEL require('xmlrpc') - NO dynamic require
+  return new Promise((resolve, reject) => {
+    if (!ODOO_CONFIG.username || !ODOO_CONFIG.password) {
+      return reject(new Error('Missing env vars: ODUSERNAME or ODPASSWORD'));
+    }
+
+    const client = xmlrpc.createClient({ 
+      url: `${ODOO_CONFIG.url}/xmlrpc/2/common`,
+      timeout: 10000,
+      rejectUnauthorized: false, // ✅ SSL fix
+      headers: { 'User-Agent': 'Vercel-Odoo-Test' }
+    });
 
     client.methodCall('authenticate', [
       ODOO_CONFIG.db, 
@@ -238,33 +128,48 @@ async function testOdooConnection() {
       ODOO_CONFIG.password, 
       {}
     ], (err, uid) => {
-      client.drain();
+      // ✅ FIX 2: Always drain to prevent leaks
+      try { client.drain(); } catch(e) {}
       
       if (err) {
-        return reject(new Error(`XML-RPC Error: ${err.faultString || err.message || err}`));
+        return reject(new Error(`Auth failed: ${err.faultString || err.message || JSON.stringify(err)}`));
       }
       
       if (!uid || uid <= 0) {
-        return reject(new Error(`Authentication failed - UID: ${uid}. Check DB name, username, password/API key`));
+        return reject(new Error(`Invalid credentials - UID: ${uid}`));
       }
 
+      // Version check
       client.methodCall('version', [], (err2, version) => {
-        client.drain();
+        try { client.drain(); } catch(e) {}
         if (err2) {
-          resolve({ 
-            uid: uid, 
-            version: 'unknown (version check failed)',
-            message: 'Odoo auth successful'
-          });
-        } else {
-          resolve({ 
-            uid: uid, 
-            version: version?.server_version || 'unknown',
-            server_version_info: version?.server_version_info,
-            message: 'Odoo connection fully successful'
-          });
+          return resolve({ uid, version: 'unknown', message: 'Auth OK' });
         }
+        resolve({ 
+          uid, 
+          version: version?.server_version || 'unknown',
+          server_version_info: version?.server_version_info,
+          message: 'Fully connected'
+        });
       });
     });
+
+    // ✅ FIX 3: Timeout fallback
+    setTimeout(() => {
+      try { client.drain(); } catch(e) {}
+      reject(new Error('Connection timeout'));
+    }, 12000);
   });
+}
+
+function getDiagnostics(error) {
+  return {
+    url: `${ODOO_CONFIG.url}/xmlrpc/2/common`,
+    db: ODOO_CONFIG.db,
+    username: ODOO_CONFIG.username ? 'set' : 'MISSING',
+    password: ODOO_CONFIG.password ? 'set' : 'MISSING',
+    env_vars_set: !!(process.env.ODUSERNAME && process.env.ODPASSWORD),
+    timestamp: new Date().toISOString(),
+    error: error.message
+  };
 }
