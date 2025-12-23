@@ -1,5 +1,6 @@
 const axios = require('axios');
-// Replace Vercel KV with simple in-memory cache
+
+// In-memory cache
 const cache = new Map();
 const kv = {
   get: async (key) => cache.get(key),
@@ -11,15 +12,13 @@ const kv = {
   }
 };
 
-// Odoo Config - UPDATE THESE VALUES WITH YOUR ODOO DETAILS
 const ODOO_CONFIG = {
-  url: 'https://privatellc.us',  // Your Odoo instance URL
-  db: 'Dbone',           // Your Odoo database name
-  username: process.env.ODUSERNAME,     // API username
-  password: process.env.ODPASSWORD  // API password or key
+  url: 'https://privatellc.us',
+  db: 'Dbone',
+  username: process.env.ODUSERNAME,
+  password: process.env.ODPASSWORD
 };
 
-// Beautiful loading page with spinner and progress bar
 function getLoadingPage(orderId) {
   return `
 <!DOCTYPE html>
@@ -90,7 +89,7 @@ function getLoadingPage(orderId) {
 </head>
 <body>
   <div class="container">
-    <div class=""></div>
+    <div class="spinner"></div>
     <div class="progress"><div class="progress-bar"></div></div>
     <h1>Generating Secure Payment Link</h1>
     <p>Order <span class="order-id">${orderId}</span></p>
@@ -101,27 +100,86 @@ function getLoadingPage(orderId) {
 </html>`;
 }
 
-module.exports = async (req, res) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
+async function searchOdooInvoice(orderId) {
+  const jsonrpcUrl = `${ODOO_CONFIG.url}/jsonrpc`;
   
-  // ROUTE 1: /api/pay?order_id=8335827457 → url.pathname = '/pay'
-  if (url.pathname === '/pay') {
+  try {
+    // Step 1: Authenticate
+    const authResponse = await axios.post(jsonrpcUrl, {
+      jsonrpc: '2.0',
+      method: 'call',
+      params: {
+        db: ODOO_CONFIG.db,
+        login: ODOO_CONFIG.username,
+        password: ODOO_CONFIG.password
+      },
+      id: 1
+    });
+    
+    if (authResponse.data.error) {
+      console.error('Auth error:', authResponse.data.error);
+      return null;
+    }
+    
+    const uid = authResponse.data.result;
+    
+    // Step 2: Search invoices where name = orderId
+    const searchResponse = await axios.post(jsonrpcUrl, {
+      jsonrpc: '2.0',
+      method: 'call',
+      params: {
+        service: 'object',
+        method: 'execute_kw',
+        args: [
+          ODOO_CONFIG.db,
+          uid,
+          ODOO_CONFIG.password,
+          'account.move',
+          'search_read',
+          [['name', '=', orderId]],
+          { fields: ['id', 'name', 'state', 'amount_total', 'access_token'] }
+        ]
+      },
+      id: 2
+    });
+    
+    if (searchResponse.data.error) {
+      console.error('Search error:', searchResponse.data.error);
+      return null;
+    }
+    
+    return searchResponse.data.result;
+  } catch (error) {
+    console.error('Odoo API error:', error.message);
+    return null;
+  }
+}
+
+// Main handler - handles all /api routes
+module.exports = async (req, res) => {
+  const method = req.method;
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const pathname = url.pathname;
+  
+  // GET /api/pay?order_id=xxx
+  if (method === 'GET' && pathname === '/') {
     const order_id = url.searchParams.get('order_id');
     
     if (!order_id) {
-      return res.status(400).send('Missing order_id');
+      return res.status(400).send('Missing order_id parameter');
     }
     
-    // Check cache first (instant redirect)
+    // Check cache first
     const cachedUrl = await kv.get(`payment_${order_id}`);
     if (cachedUrl) {
       return res.writeHead(302, { Location: cachedUrl }).end();
     }
     
-    // Send loading page immediately
+    // Send loading page
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(getLoadingPage(order_id));
     
-    // Background: Wait 10s + search Odoo invoice
+    // Background: Wait 10s + search Odoo
     setImmediate(async () => {
       try {
         await new Promise(resolve => setTimeout(resolve, 10000));
@@ -135,69 +193,33 @@ module.exports = async (req, res) => {
         const invoiceData = invoice[0];
         const paymentUrl = `${ODOO_CONFIG.url}/my/invoices/${invoiceData.id}?access_token=${invoiceData.access_token}`;
         
-        // Cache for instant future redirects (30min)
         await kv.set(`payment_${order_id}`, paymentUrl, { ex: 1800 });
-        
-        console.log(`Payment URL ready for ${order_id}: ${paymentUrl}`);
+        console.log(`Payment URL cached for ${order_id}`);
       } catch (error) {
-        console.error('Odoo search failed:', error);
+        console.error('Background search failed:', error);
       }
     });
     
     return;
   }
   
-  // ROUTE 2: /api/webhook (POST) → url.pathname = '/webhook'
-  if (url.pathname === '/webhook' && req.method === 'POST') {
-    const formData = req.body || {};
-    console.log('Zoho webhook received:', formData);
-    // Invoice creation happens in Odoo separately
-    return res.status(200).send('OK');
+  // POST /api/webhook (Zoho)
+  if (method === 'POST' && pathname === '/') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const formData = JSON.parse(body);
+        console.log('Zoho webhook:', formData);
+      } catch (e) {
+        console.log('Webhook body:', body);
+      }
+      res.status(200).send('OK');
+    });
+    return;
   }
   
-  // 404 for everything else
-  res.statusCode = 404;
-  res.end('Not found');
+  // 404
+  res.status(404).send('Not found');
 };
 
-
-// Odoo JSON-RPC: Search invoice by name field (e.g. "8335827457")
-async function searchOdooInvoice(orderId) {
-  const jsonrpcUrl = `${ODOO_CONFIG.url}/jsonrpc`;
-  
-  // Step 1: Authenticate
-  const authResponse = await axios.post(jsonrpcUrl, {
-    jsonrpc: '2.0',
-    method: 'call',
-    params: {
-      db: ODOO_CONFIG.db,
-      login: ODOO_CONFIG.username,
-      password: ODOO_CONFIG.password
-    },
-    id: 1
-  });
-  
-  const uid = authResponse.data.result;
-  
-  // Step 2: Search invoices where name = orderId
-  const searchResponse = await axios.post(jsonrpcUrl, {
-    jsonrpc: '2.0',
-    method: 'call',
-    params: {
-      service: 'object',
-      method: 'execute_kw',
-      args: [
-        ODOO_CONFIG.db,
-        uid,
-        ODOO_CONFIG.password,
-        'account.move',           // Invoice model
-        'search_read',
-        [['name', '=', orderId]], // Filter: name = "8335827457"
-        { fields: ['id', 'name', 'state', 'amount_total', 'access_token'] }
-      ]
-    },
-    id: 2
-  });
-  
-  return searchResponse.data.result;
-}
