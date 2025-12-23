@@ -90,13 +90,19 @@ async function searchOdooInvoice(orderId) {
   console.log(`🔍 Searching Odoo for invoice: ${orderId}`);
   
   try {
+    // Step 1: Authenticate using common service
     const authResponse = await axios.post(jsonrpcUrl, {
       jsonrpc: '2.0',
       method: 'call',
       params: {
-        db: ODOO_CONFIG.db,
-        login: ODOO_CONFIG.username,
-        password: ODOO_CONFIG.password
+        service: 'common',
+        method: 'authenticate',
+        args: [
+          ODOO_CONFIG.db,
+          ODOO_CONFIG.username,
+          ODOO_CONFIG.password,
+          {}
+        ]
       },
       id: 1
     });
@@ -106,9 +112,10 @@ async function searchOdooInvoice(orderId) {
       return null;
     }
     
-    console.log('✅ Auth success, UID:', authResponse.data.result);
     const uid = authResponse.data.result;
+    console.log('✅ Auth success, UID:', uid);
     
+    // Step 2: Search for invoice using execute_kw
     const searchResponse = await axios.post(jsonrpcUrl, {
       jsonrpc: '2.0',
       method: 'call',
@@ -137,6 +144,9 @@ async function searchOdooInvoice(orderId) {
     return searchResponse.data.result;
   } catch (error) {
     console.error('💥 Odoo API error:', error.message);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     return null;
   }
 }
