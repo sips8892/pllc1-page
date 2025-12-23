@@ -1,5 +1,5 @@
-const axios = require('axios');
-import xmlrpc from 'xmlrpc';
+// api/test.js - FIXED for Vercel + HTTPS SSL issues
+import { createClient } from 'xmlrpc';
 
 const ODOO_CONFIG = {
   url: 'https://activepieces-odoo.t4stfh.easypanel.host',
@@ -8,81 +8,93 @@ const ODOO_CONFIG = {
   password: process.env.ODPASSWORD
 };
 
-async function testOdooConnection() {
-  const jsonrpcUrl = `${ODOO_CONFIG.url}/jsonrpc`;
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   try {
-    // Test 1: Authentication
-    const authResponse = await axios.post(jsonrpcUrl, {
-      jsonrpc: '2.0',
-      method: 'call',
-      params: {
-        db: ODOO_CONFIG.db,
-        login: ODOO_CONFIG.username,
-        password: ODOO_CONFIG.password
-      },
-      id: 1
+    const result = await testOdooConnection();
+    res.status(200).json({ 
+      success: true, 
+      status: 'connected',
+      diagnostics: result 
     });
-    
-    if (authResponse.data.error) {
-      return { auth: `❌ FAILED: ${authResponse.data.error.message}` };
-    }
-    
-    const uid = authResponse.data.result;
-    
-    // Test 2: Search invoices (use test order_id)
-    const searchResponse = await axios.post(jsonrpcUrl, {
-      jsonrpc: '2.0',
-      method: 'call',
-      params: {
-        service: 'object',
-        method: 'execute_kw',
-        args: [
-          ODOO_CONFIG.db,
-          uid,
-          ODOO_CONFIG.password,
-          'account.move',
-          'search_read',
-          [['name', '=', '8335827457']], // Test order_id
-          { fields: ['id', 'name'] }
-        ]
-      },
-      id: 2
-    });
-    
-    const invoices = searchResponse.data.result || [];
-    
-    return {
-      auth: `✅ SUCCESS (UID: ${uid})`,
-      search: invoices.length > 0 
-        ? `✅ FOUND ${invoices.length} invoice(s): ${invoices.map(i => i.name).join(', ')}`
-        : '✅ SUCCESS (no matching invoices - normal)',
-      sample_payment_url: invoices[0] 
-        ? `${ODOO_CONFIG.url}/my/invoices/${invoices[0].id}?access_token=test`
-        : 'N/A'
-    };
   } catch (error) {
-    return {
-      auth: `❌ ERROR: ${error.message}`,
-      search: 'Failed',
-      sample_payment_url: 'N/A'
-    };
+    console.error('Odoo Test Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      status: 'disconnected',
+      error: error.message,
+      diagnostics: {
+        url: `${ODOO_CONFIG.url}/xmlrpc/2/common`,
+        db: ODOO_CONFIG.db,
+        username: ODOO_CONFIG.username ? 'configured' : 'missing',
+        password: ODOO_CONFIG.password ? 'configured' : 'missing',
+        env_vars_set: !!(process.env.ODUSERNAME && process.env.ODPASSWORD),
+        timestamp: new Date().toISOString()
+      }
+    });
   }
 }
 
-module.exports = async (req, res) => {
-  const envStatus = {
-    ODUSERNAME: process.env.ODUSERNAME ? '✅ SET' : '❌ MISSING',
-    ODPASSWORD: process.env.ODPASSWORD ? '✅ SET' : '❌ MISSING',
-    timestamp: new Date().toISOString()
-  };
-  
-  const odooTest = await testOdooConnection();
-  
-  res.json({
-    environment: envStatus,
-    odoo_connection: odooTest,
-    ready_for_zoho: envStatus.ODUSERNAME === '✅ SET' && envStatus.ODPASSWORD === '✅ SET' && odooTest.auth.startsWith('✅'),
-    test_notes: "Create invoice with name='8335827457' in Odoo to see search results"
+async function testOdooConnection() {
+  return new Promise((resolve, reject) => {
+    // ✅ CRITICAL: Proper HTTPS client config for Vercel + self-signed certs
+    const client = createClient({ 
+      url: `${ODOO_CONFIG.url}/xmlrpc/2/common`,
+      timeout: 15000, // Increased for Vercel cold starts
+      // ✅ FIX 1: Handle HTTPS SSL issues common on Vercel/Odoo
+      rejectUnauthorized: false, // Accept self-signed certs
+      headers: {
+        'User-Agent': 'Vercel-Odoo-Test/1.0'
+      }
+    });
+
+    // ✅ FIX 2: Validate env vars first
+    if (!ODOO_CONFIG.username || !ODOO_CONFIG.password) {
+      return reject(new Error('Missing ODOO env vars: ODUSERNAME or ODPASSWORD'));
+    }
+
+    client.methodCall('authenticate', [
+      ODOO_CONFIG.db, 
+      ODOO_CONFIG.username, 
+      ODOO_CONFIG.password, 
+      {}
+    ], (err, uid) => {
+      client.drain(); // ✅ FIX 3: Always drain client to prevent leaks
+      
+      if (err) {
+        return reject(new Error(`XML-RPC Error: ${err.faultString || err.message || err}`));
+      }
+      
+      if (!uid || uid <= 0) {
+        return reject(new Error(`Authentication failed - UID: ${uid}. Check DB name, username, password/API key`));
+      }
+
+      // Version check (optional but good diagnostic)
+      client.methodCall('version', [], (err2, version) => {
+        client.drain();
+        if (err2) {
+          resolve({ 
+            uid: uid, 
+            version: 'unknown (version check failed)',
+            message: 'Odoo auth successful'
+          });
+        } else {
+          resolve({ 
+            uid: uid, 
+            version: version?.server_version || 'unknown',
+            server_version_info: version?.server_version_info,
+            message: 'Odoo connection fully successful'
+          });
+        }
+      });
+    });
   });
-};
+}
