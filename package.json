@@ -1,8 +1,8 @@
 {
-  "name": "pllc1-page",
+  "name": "odoo-payment-api",
   "version": "1.0.0",
+  "type": "commonjs",  // or omit for CommonJS
   "dependencies": {
-    "axios": "^1.7.7"
-    "xmlrpc": "^1.3.3"
+    "axios": "^1.7.2"  // ONLY this is needed
   }
 }
