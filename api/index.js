@@ -13,7 +13,7 @@ const kv = {
 };
 
 const ODOO_CONFIG = {
-  url: 'https://privatellc.us',
+  url: 'https://activepieces-odoo.t4stfh.easypanel.host',
   db: 'Dbone',
   username: process.env.ODUSERNAME,
   password: process.env.ODPASSWORD
