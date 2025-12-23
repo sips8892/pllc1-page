@@ -102,11 +102,10 @@ function getLoadingPage(orderId) {
 }
 
 module.exports = async (req, res) => {
-  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url, `http://${req.headers.host}`);
   
-  // ROUTE 1: /api/pay?order_id=8335827457 (Zoho thank you page)
-  if (pathname === '/api/pay') {
-    const url = new URL(req.url, `http://${req.headers.host}`);
+  // ROUTE 1: /api/pay?order_id=8335827457 → url.pathname = '/pay'
+  if (url.pathname === '/pay') {
     const order_id = url.searchParams.get('order_id');
     
     if (!order_id) {
@@ -148,17 +147,19 @@ module.exports = async (req, res) => {
     return;
   }
   
-  // ROUTE 2: /api/webhook (Zoho form submission - background)
-  if (pathname === '/api/webhook' && req.method === 'POST') {
-    const formData = req.body;
+  // ROUTE 2: /api/webhook (POST) → url.pathname = '/webhook'
+  if (url.pathname === '/webhook' && req.method === 'POST') {
+    const formData = req.body || {};
     console.log('Zoho webhook received:', formData);
-    // Invoice creation happens in Odoo separately via your process
+    // Invoice creation happens in Odoo separately
     return res.status(200).send('OK');
   }
   
+  // 404 for everything else
   res.statusCode = 404;
   res.end('Not found');
 };
+
 
 // Odoo JSON-RPC: Search invoice by name field (e.g. "8335827457")
 async function searchOdooInvoice(orderId) {
